@@ -135,7 +135,7 @@ GHORG_MATCH_REGEX:
 # flag (--no-clean)
 GHORG_NO_CLEAN:
 
-# Additionally clone the wiki page for repo
+# Additionally clone the wiki page for repo; github, gitlab, gitea only
 # default: false
 # flag (--clone-wiki)
 GHORG_CLONE_WIKI:
