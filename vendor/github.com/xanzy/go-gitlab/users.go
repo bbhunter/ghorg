@@ -17,11 +17,15 @@
 package gitlab
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"time"
+
+	"github.com/hashicorp/go-retryablehttp"
 )
 
 // List a couple of standard errors.
@@ -57,6 +61,16 @@ type BasicUser struct {
 	WebURL    string     `json:"web_url"`
 }
 
+// ServiceAccount represents a GitLab service account.
+//
+// GitLab API docs:
+// https://docs.gitlab.com/ee/api/user_service_accounts.html
+type ServiceAccount struct {
+	ID       int    `json:"id"`
+	Username string `json:"username"`
+	Name     string `json:"name"`
+}
+
 // User represents a GitLab user.
 //
 // GitLab API docs: https://docs.gitlab.com/ee/api/users.html
@@ -84,6 +98,7 @@ type User struct {
 	LastActivityOn                 *ISOTime           `json:"last_activity_on"`
 	ColorSchemeID                  int                `json:"color_scheme_id"`
 	IsAdmin                        bool               `json:"is_admin"`
+	IsAuditor                      bool               `json:"is_auditor"`
 	AvatarURL                      string             `json:"avatar_url"`
 	CanCreateGroup                 bool               `json:"can_create_group"`
 	CanCreateProject               bool               `json:"can_create_project"`
@@ -103,12 +118,30 @@ type User struct {
 	UsingLicenseSeat               bool               `json:"using_license_seat"`
 	CustomAttributes               []*CustomAttribute `json:"custom_attributes"`
 	NamespaceID                    int                `json:"namespace_id"`
+	Locked                         bool               `json:"locked"`
 }
 
 // UserIdentity represents a user identity.
 type UserIdentity struct {
 	Provider  string `json:"provider"`
 	ExternUID string `json:"extern_uid"`
+}
+
+// UserAvatar represents a GitLab user avatar.
+//
+// GitLab API docs: https://docs.gitlab.com/ee/api/users.html
+type UserAvatar struct {
+	Filename string
+	Image    io.Reader
+}
+
+// MarshalJSON implements the json.Marshaler interface.
+func (a *UserAvatar) MarshalJSON() ([]byte, error) {
+	if a.Filename == "" && a.Image == nil {
+		return []byte(`""`), nil
+	}
+	type alias UserAvatar
+	return json.Marshal((*alias)(a))
 }
 
 // ListUsersOptions represents the available ListUsers() options.
@@ -153,7 +186,7 @@ func (s *UsersService) ListUsers(opt *ListUsersOptions, options ...RequestOption
 		return nil, resp, err
 	}
 
-	return usr, resp, err
+	return usr, resp, nil
 }
 
 // GetUsersOptions represents the available GetUser() options.
@@ -180,44 +213,60 @@ func (s *UsersService) GetUser(user int, opt GetUsersOptions, options ...Request
 		return nil, resp, err
 	}
 
-	return usr, resp, err
+	return usr, resp, nil
 }
 
 // CreateUserOptions represents the available CreateUser() options.
 //
 // GitLab API docs: https://docs.gitlab.com/ee/api/users.html#user-creation
 type CreateUserOptions struct {
-	Email               *string `url:"email,omitempty" json:"email,omitempty"`
-	Password            *string `url:"password,omitempty" json:"password,omitempty"`
-	ResetPassword       *bool   `url:"reset_password,omitempty" json:"reset_password,omitempty"`
-	ForceRandomPassword *bool   `url:"force_random_password,omitempty" json:"force_random_password,omitempty"`
-	Username            *string `url:"username,omitempty" json:"username,omitempty"`
-	Name                *string `url:"name,omitempty" json:"name,omitempty"`
-	Skype               *string `url:"skype,omitempty" json:"skype,omitempty"`
-	Linkedin            *string `url:"linkedin,omitempty" json:"linkedin,omitempty"`
-	Twitter             *string `url:"twitter,omitempty" json:"twitter,omitempty"`
-	WebsiteURL          *string `url:"website_url,omitempty" json:"website_url,omitempty"`
-	Organization        *string `url:"organization,omitempty" json:"organization,omitempty"`
-	JobTitle            *string `url:"job_title,omitempty" json:"job_title,omitempty"`
-	ProjectsLimit       *int    `url:"projects_limit,omitempty" json:"projects_limit,omitempty"`
-	ExternUID           *string `url:"extern_uid,omitempty" json:"extern_uid,omitempty"`
-	Provider            *string `url:"provider,omitempty" json:"provider,omitempty"`
-	Bio                 *string `url:"bio,omitempty" json:"bio,omitempty"`
-	Location            *string `url:"location,omitempty" json:"location,omitempty"`
-	Admin               *bool   `url:"admin,omitempty" json:"admin,omitempty"`
-	CanCreateGroup      *bool   `url:"can_create_group,omitempty" json:"can_create_group,omitempty"`
-	SkipConfirmation    *bool   `url:"skip_confirmation,omitempty" json:"skip_confirmation,omitempty"`
-	External            *bool   `url:"external,omitempty" json:"external,omitempty"`
-	PrivateProfile      *bool   `url:"private_profile,omitempty" json:"private_profile,omitempty"`
-	Note                *string `url:"note,omitempty" json:"note,omitempty"`
-	ThemeID             *int    `url:"theme_id,omitempty" json:"theme_id,omitempty"`
+	Admin               *bool       `url:"admin,omitempty" json:"admin,omitempty"`
+	Avatar              *UserAvatar `url:"-" json:"-"`
+	Bio                 *string     `url:"bio,omitempty" json:"bio,omitempty"`
+	CanCreateGroup      *bool       `url:"can_create_group,omitempty" json:"can_create_group,omitempty"`
+	Email               *string     `url:"email,omitempty" json:"email,omitempty"`
+	External            *bool       `url:"external,omitempty" json:"external,omitempty"`
+	ExternUID           *string     `url:"extern_uid,omitempty" json:"extern_uid,omitempty"`
+	ForceRandomPassword *bool       `url:"force_random_password,omitempty" json:"force_random_password,omitempty"`
+	JobTitle            *string     `url:"job_title,omitempty" json:"job_title,omitempty"`
+	Linkedin            *string     `url:"linkedin,omitempty" json:"linkedin,omitempty"`
+	Location            *string     `url:"location,omitempty" json:"location,omitempty"`
+	Name                *string     `url:"name,omitempty" json:"name,omitempty"`
+	Note                *string     `url:"note,omitempty" json:"note,omitempty"`
+	Organization        *string     `url:"organization,omitempty" json:"organization,omitempty"`
+	Password            *string     `url:"password,omitempty" json:"password,omitempty"`
+	PrivateProfile      *bool       `url:"private_profile,omitempty" json:"private_profile,omitempty"`
+	ProjectsLimit       *int        `url:"projects_limit,omitempty" json:"projects_limit,omitempty"`
+	Provider            *string     `url:"provider,omitempty" json:"provider,omitempty"`
+	ResetPassword       *bool       `url:"reset_password,omitempty" json:"reset_password,omitempty"`
+	SkipConfirmation    *bool       `url:"skip_confirmation,omitempty" json:"skip_confirmation,omitempty"`
+	Skype               *string     `url:"skype,omitempty" json:"skype,omitempty"`
+	ThemeID             *int        `url:"theme_id,omitempty" json:"theme_id,omitempty"`
+	Twitter             *string     `url:"twitter,omitempty" json:"twitter,omitempty"`
+	Username            *string     `url:"username,omitempty" json:"username,omitempty"`
+	WebsiteURL          *string     `url:"website_url,omitempty" json:"website_url,omitempty"`
 }
 
 // CreateUser creates a new user. Note only administrators can create new users.
 //
 // GitLab API docs: https://docs.gitlab.com/ee/api/users.html#user-creation
 func (s *UsersService) CreateUser(opt *CreateUserOptions, options ...RequestOptionFunc) (*User, *Response, error) {
-	req, err := s.client.NewRequest(http.MethodPost, "users", opt, options)
+	var err error
+	var req *retryablehttp.Request
+
+	if opt.Avatar == nil {
+		req, err = s.client.NewRequest(http.MethodPost, "users", opt, options)
+	} else {
+		req, err = s.client.UploadRequest(
+			http.MethodPost,
+			"users",
+			opt.Avatar.Image,
+			opt.Avatar.Filename,
+			UploadAvatar,
+			opt,
+			options,
+		)
+	}
 	if err != nil {
 		return nil, nil, err
 	}
@@ -228,37 +277,38 @@ func (s *UsersService) CreateUser(opt *CreateUserOptions, options ...RequestOpti
 		return nil, resp, err
 	}
 
-	return usr, resp, err
+	return usr, resp, nil
 }
 
 // ModifyUserOptions represents the available ModifyUser() options.
 //
 // GitLab API docs: https://docs.gitlab.com/ee/api/users.html#user-modification
 type ModifyUserOptions struct {
-	Email              *string `url:"email,omitempty" json:"email,omitempty"`
-	Password           *string `url:"password,omitempty" json:"password,omitempty"`
-	Username           *string `url:"username,omitempty" json:"username,omitempty"`
-	Name               *string `url:"name,omitempty" json:"name,omitempty"`
-	Skype              *string `url:"skype,omitempty" json:"skype,omitempty"`
-	Linkedin           *string `url:"linkedin,omitempty" json:"linkedin,omitempty"`
-	Twitter            *string `url:"twitter,omitempty" json:"twitter,omitempty"`
-	WebsiteURL         *string `url:"website_url,omitempty" json:"website_url,omitempty"`
-	Organization       *string `url:"organization,omitempty" json:"organization,omitempty"`
-	JobTitle           *string `url:"job_title,omitempty" json:"job_title,omitempty"`
-	ProjectsLimit      *int    `url:"projects_limit,omitempty" json:"projects_limit,omitempty"`
-	ExternUID          *string `url:"extern_uid,omitempty" json:"extern_uid,omitempty"`
-	Provider           *string `url:"provider,omitempty" json:"provider,omitempty"`
-	Bio                *string `url:"bio,omitempty" json:"bio,omitempty"`
-	Location           *string `url:"location,omitempty" json:"location,omitempty"`
-	Admin              *bool   `url:"admin,omitempty" json:"admin,omitempty"`
-	CanCreateGroup     *bool   `url:"can_create_group,omitempty" json:"can_create_group,omitempty"`
-	SkipReconfirmation *bool   `url:"skip_reconfirmation,omitempty" json:"skip_reconfirmation,omitempty"`
-	External           *bool   `url:"external,omitempty" json:"external,omitempty"`
-	PrivateProfile     *bool   `url:"private_profile,omitempty" json:"private_profile,omitempty"`
-	Note               *string `url:"note,omitempty" json:"note,omitempty"`
-	ThemeID            *int    `url:"theme_id,omitempty" json:"theme_id,omitempty"`
-	PublicEmail        *string `url:"public_email,omitempty" json:"public_email,omitempty"`
-	CommitEmail        *string `url:"commit_email,omitempty" json:"commit_email,omitempty"`
+	Admin              *bool       `url:"admin,omitempty" json:"admin,omitempty"`
+	Avatar             *UserAvatar `url:"-" json:"avatar,omitempty"`
+	Bio                *string     `url:"bio,omitempty" json:"bio,omitempty"`
+	CanCreateGroup     *bool       `url:"can_create_group,omitempty" json:"can_create_group,omitempty"`
+	CommitEmail        *string     `url:"commit_email,omitempty" json:"commit_email,omitempty"`
+	Email              *string     `url:"email,omitempty" json:"email,omitempty"`
+	External           *bool       `url:"external,omitempty" json:"external,omitempty"`
+	ExternUID          *string     `url:"extern_uid,omitempty" json:"extern_uid,omitempty"`
+	JobTitle           *string     `url:"job_title,omitempty" json:"job_title,omitempty"`
+	Linkedin           *string     `url:"linkedin,omitempty" json:"linkedin,omitempty"`
+	Location           *string     `url:"location,omitempty" json:"location,omitempty"`
+	Name               *string     `url:"name,omitempty" json:"name,omitempty"`
+	Note               *string     `url:"note,omitempty" json:"note,omitempty"`
+	Organization       *string     `url:"organization,omitempty" json:"organization,omitempty"`
+	Password           *string     `url:"password,omitempty" json:"password,omitempty"`
+	PrivateProfile     *bool       `url:"private_profile,omitempty" json:"private_profile,omitempty"`
+	ProjectsLimit      *int        `url:"projects_limit,omitempty" json:"projects_limit,omitempty"`
+	Provider           *string     `url:"provider,omitempty" json:"provider,omitempty"`
+	PublicEmail        *string     `url:"public_email,omitempty" json:"public_email,omitempty"`
+	SkipReconfirmation *bool       `url:"skip_reconfirmation,omitempty" json:"skip_reconfirmation,omitempty"`
+	Skype              *string     `url:"skype,omitempty" json:"skype,omitempty"`
+	ThemeID            *int        `url:"theme_id,omitempty" json:"theme_id,omitempty"`
+	Twitter            *string     `url:"twitter,omitempty" json:"twitter,omitempty"`
+	Username           *string     `url:"username,omitempty" json:"username,omitempty"`
+	WebsiteURL         *string     `url:"website_url,omitempty" json:"website_url,omitempty"`
 }
 
 // ModifyUser modifies an existing user. Only administrators can change attributes
@@ -266,9 +316,23 @@ type ModifyUserOptions struct {
 //
 // GitLab API docs: https://docs.gitlab.com/ee/api/users.html#user-modification
 func (s *UsersService) ModifyUser(user int, opt *ModifyUserOptions, options ...RequestOptionFunc) (*User, *Response, error) {
+	var err error
+	var req *retryablehttp.Request
 	u := fmt.Sprintf("users/%d", user)
 
-	req, err := s.client.NewRequest(http.MethodPut, u, opt, options)
+	if opt.Avatar == nil || (opt.Avatar.Filename == "" && opt.Avatar.Image == nil) {
+		req, err = s.client.NewRequest(http.MethodPut, u, opt, options)
+	} else {
+		req, err = s.client.UploadRequest(
+			http.MethodPut,
+			u,
+			opt.Avatar.Image,
+			opt.Avatar.Filename,
+			UploadAvatar,
+			opt,
+			options,
+		)
+	}
 	if err != nil {
 		return nil, nil, err
 	}
@@ -279,7 +343,7 @@ func (s *UsersService) ModifyUser(user int, opt *ModifyUserOptions, options ...R
 		return nil, resp, err
 	}
 
-	return usr, resp, err
+	return usr, resp, nil
 }
 
 // DeleteUser deletes a user. Available only for administrators. This is an
@@ -315,7 +379,7 @@ func (s *UsersService) CurrentUser(options ...RequestOptionFunc) (*User, *Respon
 		return nil, resp, err
 	}
 
-	return usr, resp, err
+	return usr, resp, nil
 }
 
 // UserStatus represents the current status of a user
@@ -345,7 +409,7 @@ func (s *UsersService) CurrentUserStatus(options ...RequestOptionFunc) (*UserSta
 		return nil, resp, err
 	}
 
-	return status, resp, err
+	return status, resp, nil
 }
 
 // GetUserStatus retrieves a user's status
@@ -366,7 +430,7 @@ func (s *UsersService) GetUserStatus(user int, options ...RequestOptionFunc) (*U
 		return nil, resp, err
 	}
 
-	return status, resp, err
+	return status, resp, nil
 }
 
 // UserStatusOptions represents the options required to set the status
@@ -395,7 +459,37 @@ func (s *UsersService) SetUserStatus(opt *UserStatusOptions, options ...RequestO
 		return nil, resp, err
 	}
 
-	return status, resp, err
+	return status, resp, nil
+}
+
+// UserAssociationsCount represents the user associations count.
+//
+// Gitlab API docs: https://docs.gitlab.com/ee/api/users.html#list-associations-count-for-user
+type UserAssociationsCount struct {
+	GroupsCount        int `json:"groups_count"`
+	ProjectsCount      int `json:"projects_count"`
+	IssuesCount        int `json:"issues_count"`
+	MergeRequestsCount int `json:"merge_requests_count"`
+}
+
+// GetUserAssociationsCount gets a list of a specified user associations.
+//
+// Gitlab API docs: https://docs.gitlab.com/ee/api/users.html#list-associations-count-for-user
+func (s *UsersService) GetUserAssociationsCount(user int, options ...RequestOptionFunc) (*UserAssociationsCount, *Response, error) {
+	u := fmt.Sprintf("users/%d/associations_count", user)
+
+	req, err := s.client.NewRequest(http.MethodGet, u, nil, options)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	uac := new(UserAssociationsCount)
+	resp, err := s.client.Do(req, uac)
+	if err != nil {
+		return nil, resp, err
+	}
+
+	return uac, resp, nil
 }
 
 // SSHKey represents a SSH key.
@@ -409,11 +503,16 @@ type SSHKey struct {
 	ExpiresAt *time.Time `json:"expires_at"`
 }
 
+// ListSSHKeysOptions represents the available ListSSHKeys options.
+//
+// GitLab API docs: https://docs.gitlab.com/ee/api/users.html#list-ssh-keys
+type ListSSHKeysOptions ListOptions
+
 // ListSSHKeys gets a list of currently authenticated user's SSH keys.
 //
 // GitLab API docs: https://docs.gitlab.com/ee/api/users.html#list-ssh-keys
-func (s *UsersService) ListSSHKeys(options ...RequestOptionFunc) ([]*SSHKey, *Response, error) {
-	req, err := s.client.NewRequest(http.MethodGet, "user/keys", nil, options)
+func (s *UsersService) ListSSHKeys(opt *ListSSHKeysOptions, options ...RequestOptionFunc) ([]*SSHKey, *Response, error) {
+	req, err := s.client.NewRequest(http.MethodGet, "user/keys", opt, options)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -424,7 +523,7 @@ func (s *UsersService) ListSSHKeys(options ...RequestOptionFunc) ([]*SSHKey, *Re
 		return nil, resp, err
 	}
 
-	return k, resp, err
+	return k, resp, nil
 }
 
 // ListSSHKeysForUserOptions represents the available ListSSHKeysForUser() options.
@@ -455,7 +554,7 @@ func (s *UsersService) ListSSHKeysForUser(uid interface{}, opt *ListSSHKeysForUs
 		return nil, resp, err
 	}
 
-	return k, resp, err
+	return k, resp, nil
 }
 
 // GetSSHKey gets a single key.
@@ -475,7 +574,7 @@ func (s *UsersService) GetSSHKey(key int, options ...RequestOptionFunc) (*SSHKey
 		return nil, resp, err
 	}
 
-	return k, resp, err
+	return k, resp, nil
 }
 
 // GetSSHKeyForUser gets a single key for a given user.
@@ -495,7 +594,7 @@ func (s *UsersService) GetSSHKeyForUser(user int, key int, options ...RequestOpt
 		return nil, resp, err
 	}
 
-	return k, resp, err
+	return k, resp, nil
 }
 
 // AddSSHKeyOptions represents the available AddSSHKey() options.
@@ -522,7 +621,7 @@ func (s *UsersService) AddSSHKey(opt *AddSSHKeyOptions, options ...RequestOption
 		return nil, resp, err
 	}
 
-	return k, resp, err
+	return k, resp, nil
 }
 
 // AddSSHKeyForUser creates new key owned by specified user. Available only for
@@ -543,7 +642,7 @@ func (s *UsersService) AddSSHKeyForUser(user int, opt *AddSSHKeyOptions, options
 		return nil, resp, err
 	}
 
-	return k, resp, err
+	return k, resp, nil
 }
 
 // DeleteSSHKey deletes key owned by currently authenticated user. This is an
@@ -603,7 +702,7 @@ func (s *UsersService) ListGPGKeys(options ...RequestOptionFunc) ([]*GPGKey, *Re
 		return nil, resp, err
 	}
 
-	return ks, resp, err
+	return ks, resp, nil
 }
 
 // GetGPGKey gets a specific GPG key of currently authenticated user.
@@ -623,7 +722,7 @@ func (s *UsersService) GetGPGKey(key int, options ...RequestOptionFunc) (*GPGKey
 		return nil, resp, err
 	}
 
-	return k, resp, err
+	return k, resp, nil
 }
 
 // AddGPGKeyOptions represents the available AddGPGKey() options.
@@ -648,7 +747,7 @@ func (s *UsersService) AddGPGKey(opt *AddGPGKeyOptions, options ...RequestOption
 		return nil, resp, err
 	}
 
-	return k, resp, err
+	return k, resp, nil
 }
 
 // DeleteGPGKey deletes a GPG key owned by currently authenticated user.
@@ -683,7 +782,7 @@ func (s *UsersService) ListGPGKeysForUser(user int, options ...RequestOptionFunc
 		return nil, resp, err
 	}
 
-	return ks, resp, err
+	return ks, resp, nil
 }
 
 // GetGPGKeyForUser gets a specific GPG key for a given user.
@@ -703,7 +802,7 @@ func (s *UsersService) GetGPGKeyForUser(user, key int, options ...RequestOptionF
 		return nil, resp, err
 	}
 
-	return k, resp, err
+	return k, resp, nil
 }
 
 // AddGPGKeyForUser creates new GPG key owned by the specified user.
@@ -724,7 +823,7 @@ func (s *UsersService) AddGPGKeyForUser(user int, opt *AddGPGKeyOptions, options
 		return nil, resp, err
 	}
 
-	return k, resp, err
+	return k, resp, nil
 }
 
 // DeleteGPGKeyForUser deletes a GPG key owned by a specified user.
@@ -766,7 +865,7 @@ func (s *UsersService) ListEmails(options ...RequestOptionFunc) ([]*Email, *Resp
 		return nil, resp, err
 	}
 
-	return e, resp, err
+	return e, resp, nil
 }
 
 // ListEmailsForUserOptions represents the available ListEmailsForUser() options.
@@ -794,7 +893,7 @@ func (s *UsersService) ListEmailsForUser(user int, opt *ListEmailsForUserOptions
 		return nil, resp, err
 	}
 
-	return e, resp, err
+	return e, resp, nil
 }
 
 // GetEmail gets a single email.
@@ -814,7 +913,7 @@ func (s *UsersService) GetEmail(email int, options ...RequestOptionFunc) (*Email
 		return nil, resp, err
 	}
 
-	return e, resp, err
+	return e, resp, nil
 }
 
 // AddEmailOptions represents the available AddEmail() options.
@@ -840,7 +939,7 @@ func (s *UsersService) AddEmail(opt *AddEmailOptions, options ...RequestOptionFu
 		return nil, resp, err
 	}
 
-	return e, resp, err
+	return e, resp, nil
 }
 
 // AddEmailForUser creates new email owned by specified user. Available only for
@@ -861,7 +960,7 @@ func (s *UsersService) AddEmailForUser(user int, opt *AddEmailOptions, options .
 		return nil, resp, err
 	}
 
-	return e, resp, err
+	return e, resp, nil
 }
 
 // DeleteEmail deletes email owned by currently authenticated user. This is an
@@ -1124,14 +1223,15 @@ func (s *UsersService) RejectUser(user int, options ...RequestOptionFunc) error 
 // GitLab API docs:
 // https://docs.gitlab.com/ee/api/users.html#get-all-impersonation-tokens-of-a-user
 type ImpersonationToken struct {
-	ID        int        `json:"id"`
-	Name      string     `json:"name"`
-	Active    bool       `json:"active"`
-	Token     string     `json:"token"`
-	Scopes    []string   `json:"scopes"`
-	Revoked   bool       `json:"revoked"`
-	CreatedAt *time.Time `json:"created_at"`
-	ExpiresAt *ISOTime   `json:"expires_at"`
+	ID         int        `json:"id"`
+	Name       string     `json:"name"`
+	Active     bool       `json:"active"`
+	Token      string     `json:"token"`
+	Scopes     []string   `json:"scopes"`
+	Revoked    bool       `json:"revoked"`
+	CreatedAt  *time.Time `json:"created_at"`
+	ExpiresAt  *ISOTime   `json:"expires_at"`
+	LastUsedAt *time.Time `json:"last_used_at"`
 }
 
 // GetAllImpersonationTokensOptions represents the available
@@ -1162,7 +1262,7 @@ func (s *UsersService) GetAllImpersonationTokens(user int, opt *GetAllImpersonat
 		return nil, resp, err
 	}
 
-	return ts, resp, err
+	return ts, resp, nil
 }
 
 // GetImpersonationToken retrieves an impersonation token of a user.
@@ -1183,7 +1283,7 @@ func (s *UsersService) GetImpersonationToken(user, token int, options ...Request
 		return nil, resp, err
 	}
 
-	return t, resp, err
+	return t, resp, nil
 }
 
 // CreateImpersonationTokenOptions represents the available
@@ -1215,7 +1315,7 @@ func (s *UsersService) CreateImpersonationToken(user int, opt *CreateImpersonati
 		return nil, resp, err
 	}
 
-	return t, resp, err
+	return t, resp, nil
 }
 
 // RevokeImpersonationToken revokes an impersonation token.
@@ -1262,7 +1362,39 @@ func (s *UsersService) CreatePersonalAccessToken(user int, opt *CreatePersonalAc
 		return nil, resp, err
 	}
 
-	return t, resp, err
+	return t, resp, nil
+}
+
+// CreatePersonalAccessTokenForCurrentUserOptions represents the available
+// CreatePersonalAccessTokenForCurrentUser() options.
+//
+// GitLab API docs:
+// https://docs.gitlab.com/ee/api/users.html#create-a-personal-access-token-with-limited-scopes-for-the-currently-authenticated-user
+type CreatePersonalAccessTokenForCurrentUserOptions struct {
+	Name      *string   `url:"name,omitempty" json:"name,omitempty"`
+	Scopes    *[]string `url:"scopes,omitempty" json:"scopes,omitempty"`
+	ExpiresAt *ISOTime  `url:"expires_at,omitempty" json:"expires_at,omitempty"`
+}
+
+// CreatePersonalAccessTokenForCurrentUser creates a personal access token with limited scopes for the currently authenticated user.
+//
+// GitLab API docs:
+// https://docs.gitlab.com/ee/api/users.html#create-a-personal-access-token-with-limited-scopes-for-the-currently-authenticated-user
+func (s *UsersService) CreatePersonalAccessTokenForCurrentUser(opt *CreatePersonalAccessTokenForCurrentUserOptions, options ...RequestOptionFunc) (*PersonalAccessToken, *Response, error) {
+	u := "user/personal_access_tokens"
+
+	req, err := s.client.NewRequest(http.MethodPost, u, opt, options)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	t := new(PersonalAccessToken)
+	resp, err := s.client.Do(req, &t)
+	if err != nil {
+		return nil, resp, err
+	}
+
+	return t, resp, nil
 }
 
 // UserActivity represents an entry in the user/activities response
@@ -1299,7 +1431,7 @@ func (s *UsersService) GetUserActivities(opt *GetUserActivitiesOptions, options 
 		return nil, resp, err
 	}
 
-	return t, resp, err
+	return t, resp, nil
 }
 
 // UserMembership represents a membership of the user in a namespace or project.
@@ -1340,7 +1472,7 @@ func (s *UsersService) GetUserMemberships(user int, opt *GetUserMembershipOption
 		return nil, resp, err
 	}
 
-	return m, resp, err
+	return m, resp, nil
 }
 
 // DisableTwoFactor disables two factor authentication for the specified user.
@@ -1372,4 +1504,127 @@ func (s *UsersService) DisableTwoFactor(user int, options ...RequestOptionFunc) 
 	default:
 		return fmt.Errorf("Received unexpected result code: %d", resp.StatusCode)
 	}
+}
+
+// UserRunner represents a GitLab runner linked to the current user.
+//
+// GitLab API docs:
+// https://docs.gitlab.com/ee/api/users.html#create-a-runner
+type UserRunner struct {
+	ID             int        `json:"id"`
+	Token          string     `json:"token"`
+	TokenExpiresAt *time.Time `json:"token_expires_at"`
+}
+
+// CreateUserRunnerOptions represents the available CreateUserRunner() options.
+//
+// GitLab API docs:
+// https://docs.gitlab.com/ee/api/users.html#create-a-runner
+type CreateUserRunnerOptions struct {
+	RunnerType      *string   `url:"runner_type,omitempty" json:"runner_type,omitempty"`
+	GroupID         *int      `url:"group_id,omitempty" json:"group_id,omitempty"`
+	ProjectID       *int      `url:"project_id,omitempty" json:"project_id,omitempty"`
+	Description     *string   `url:"description,omitempty" json:"description,omitempty"`
+	Paused          *bool     `url:"paused,omitempty" json:"paused,omitempty"`
+	Locked          *bool     `url:"locked,omitempty" json:"locked,omitempty"`
+	RunUntagged     *bool     `url:"run_untagged,omitempty" json:"run_untagged,omitempty"`
+	TagList         *[]string `url:"tag_list,omitempty" json:"tag_list,omitempty"`
+	AccessLevel     *string   `url:"access_level,omitempty" json:"access_level,omitempty"`
+	MaximumTimeout  *int      `url:"maximum_timeout,omitempty" json:"maximum_timeout,omitempty"`
+	MaintenanceNote *string   `url:"maintenance_note,omitempty" json:"maintenance_note,omitempty"`
+}
+
+// CreateUserRunner creates a runner linked to the current user.
+//
+// GitLab API docs:
+// https://docs.gitlab.com/ee/api/users.html#create-a-runner
+func (s *UsersService) CreateUserRunner(opts *CreateUserRunnerOptions, options ...RequestOptionFunc) (*UserRunner, *Response, error) {
+	req, err := s.client.NewRequest(http.MethodPost, "user/runners", opts, options)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	r := new(UserRunner)
+	resp, err := s.client.Do(req, r)
+	if err != nil {
+		return nil, resp, err
+	}
+
+	return r, resp, nil
+}
+
+
+// CreateServiceAccountUserOptions represents the available CreateServiceAccountUser() options.
+//
+// GitLab API docs: https://docs.gitlab.com/ee/api/user_service_accounts.html#create-a-service-account-user
+type CreateServiceAccountUserOptions struct {
+	Name     *string `url:"name,omitempty" json:"name,omitempty"`
+	Username *string `url:"username,omitempty" json:"username,omitempty"`
+}
+
+// CreateServiceAccountUser creates a new service account user.
+//
+// GitLab API docs:
+// https://docs.gitlab.com/ee/api/users.html#create-service-account-user
+func (s *UsersService) CreateServiceAccountUser(opts *CreateServiceAccountUserOptions, options ...RequestOptionFunc) (*User, *Response, error) {
+	req, err := s.client.NewRequest(http.MethodPost, "service_accounts", opts, options)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	usr := new(User)
+	resp, err := s.client.Do(req, usr)
+	if err != nil {
+		return nil, resp, err
+	}
+
+	return usr, resp, nil
+}
+
+// ListServiceAccounts lists all service accounts.
+//
+// GitLab API docs:
+// https://docs.gitlab.com/ee/api/users.html#create-service-account-user
+func (s *UsersService) ListServiceAccounts(opt *ListServiceAccountsOptions, options ...RequestOptionFunc) ([]*ServiceAccount, *Response, error) {
+	req, err := s.client.NewRequest(http.MethodGet, "service_accounts", opt, options)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	var sas []*ServiceAccount
+	resp, err := s.client.Do(req, &sas)
+	if err != nil {
+		return nil, resp, err
+	}
+
+	return sas, resp, nil
+}
+
+// UploadAvatar uploads an avatar to the current user.
+//
+// GitLab API docs:
+// https://docs.gitlab.com/ee/api/users.html#upload-a-current-user-avatar
+func (s *UsersService) UploadAvatar(avatar io.Reader, filename string, options ...RequestOptionFunc) (*User, *Response, error) {
+	u := "user/avatar"
+
+	req, err := s.client.UploadRequest(
+		http.MethodPut,
+		u,
+		avatar,
+		filename,
+		UploadAvatar,
+		nil,
+		options,
+	)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	usr := new(User)
+	resp, err := s.client.Do(req, usr)
+	if err != nil {
+		return nil, resp, err
+	}
+
+	return usr, resp, nil
 }

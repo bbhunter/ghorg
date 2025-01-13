@@ -30,17 +30,6 @@ type GroupMembersService struct {
 	client *Client
 }
 
-// GroupMemberSAMLIdentity represents the SAML Identity link for the group member.
-//
-// GitLab API docs: https://docs.gitlab.com/ee/api/members.html#list-all-members-of-a-group-or-project
-// Gitlab MR for API change: https://gitlab.com/gitlab-org/gitlab/-/merge_requests/20357
-// Gitlab MR for API Doc change: https://gitlab.com/gitlab-org/gitlab/-/merge_requests/25652
-type GroupMemberSAMLIdentity struct {
-	ExternUID      string `json:"extern_uid"`
-	Provider       string `json:"provider"`
-	SAMLProviderID int    `json:"saml_provider_id"`
-}
-
 // GroupMember represents a GitLab group member.
 //
 // GitLab API docs: https://docs.gitlab.com/ee/api/members.html
@@ -54,7 +43,53 @@ type GroupMember struct {
 	CreatedAt         *time.Time               `json:"created_at"`
 	ExpiresAt         *ISOTime                 `json:"expires_at"`
 	AccessLevel       AccessLevelValue         `json:"access_level"`
+	Email             string                   `json:"email,omitempty"`
 	GroupSAMLIdentity *GroupMemberSAMLIdentity `json:"group_saml_identity"`
+	MemberRole        *MemberRole              `json:"member_role"`
+}
+
+// GroupMemberSAMLIdentity represents the SAML Identity link for the group member.
+//
+// GitLab API docs:
+// https://docs.gitlab.com/ee/api/members.html#list-all-members-of-a-group-or-project
+type GroupMemberSAMLIdentity struct {
+	ExternUID      string `json:"extern_uid"`
+	Provider       string `json:"provider"`
+	SAMLProviderID int    `json:"saml_provider_id"`
+}
+
+// BillableGroupMember represents a GitLab billable group member.
+//
+// GitLab API docs:
+// https://docs.gitlab.com/ee/api/members.html#list-all-billable-members-of-a-group
+type BillableGroupMember struct {
+	ID             int        `json:"id"`
+	Username       string     `json:"username"`
+	Name           string     `json:"name"`
+	State          string     `json:"state"`
+	AvatarURL      string     `json:"avatar_url"`
+	WebURL         string     `json:"web_url"`
+	Email          string     `json:"email"`
+	LastActivityOn *ISOTime   `json:"last_activity_on"`
+	MembershipType string     `json:"membership_type"`
+	Removable      bool       `json:"removable"`
+	CreatedAt      *time.Time `json:"created_at"`
+	IsLastOwner    bool       `json:"is_last_owner"`
+	LastLoginAt    *time.Time `json:"last_login_at"`
+}
+
+// BillableUserMembership represents a Membership of a billable user of a group
+//
+// GitLab API docs:
+// https://docs.gitlab.com/ee/api/members.html#list-memberships-for-a-billable-member-of-a-group
+type BillableUserMembership struct {
+	ID               int                 `json:"id"`
+	SourceID         int                 `json:"source_id"`
+	SourceFullName   string              `json:"source_full_name"`
+	SourceMembersURL string              `json:"source_members_url"`
+	CreatedAt        *time.Time          `json:"created_at"`
+	ExpiresAt        *time.Time          `json:"expires_at"`
+	AccessLevel      *AccessLevelDetails `json:"access_level"`
 }
 
 // ListGroupMembersOptions represents the available ListGroupMembers() and
@@ -91,7 +126,7 @@ func (s *GroupsService) ListGroupMembers(gid interface{}, opt *ListGroupMembersO
 		return nil, resp, err
 	}
 
-	return gm, resp, err
+	return gm, resp, nil
 }
 
 // ListAllGroupMembers get a list of group members viewable by the authenticated
@@ -117,7 +152,7 @@ func (s *GroupsService) ListAllGroupMembers(gid interface{}, opt *ListGroupMembe
 		return nil, resp, err
 	}
 
-	return gm, resp, err
+	return gm, resp, nil
 }
 
 // AddGroupMemberOptions represents the available AddGroupMember() options.
@@ -125,9 +160,11 @@ func (s *GroupsService) ListAllGroupMembers(gid interface{}, opt *ListGroupMembe
 // GitLab API docs:
 // https://docs.gitlab.com/ee/api/members.html#add-a-member-to-a-group-or-project
 type AddGroupMemberOptions struct {
-	UserID      *int              `url:"user_id,omitempty" json:"user_id,omitempty"`
-	AccessLevel *AccessLevelValue `url:"access_level,omitempty" json:"access_level,omitempty"`
-	ExpiresAt   *string           `url:"expires_at,omitempty" json:"expires_at"`
+	UserID       *int              `url:"user_id,omitempty" json:"user_id,omitempty"`
+	Username     *string           `url:"username,omitempty" json:"username,omitempty"`
+	AccessLevel  *AccessLevelValue `url:"access_level,omitempty" json:"access_level,omitempty"`
+	ExpiresAt    *string           `url:"expires_at,omitempty" json:"expires_at"`
+	MemberRoleID *int              `url:"member_role_id,omitempty" json:"member_role_id,omitempty"`
 }
 
 // GetGroupMember gets a member of a group.
@@ -152,29 +189,37 @@ func (s *GroupMembersService) GetGroupMember(gid interface{}, user int, options 
 		return nil, resp, err
 	}
 
+	return gm, resp, nil
+}
+
+// GetInheritedGroupMember get a member of a group or project, including
+// inherited and invited members
+//
+// GitLab API docs:
+// https://docs.gitlab.com/ee/api/members.html#get-a-member-of-a-group-or-project-including-inherited-and-invited-members
+func (s *GroupMembersService) GetInheritedGroupMember(gid interface{}, user int, options ...RequestOptionFunc) (*GroupMember, *Response, error) {
+	group, err := parseID(gid)
+	if err != nil {
+		return nil, nil, err
+	}
+	u := fmt.Sprintf("groups/%s/members/all/%d", PathEscape(group), user)
+
+	req, err := s.client.NewRequest(http.MethodGet, u, nil, options)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	gm := new(GroupMember)
+	resp, err := s.client.Do(req, gm)
+	if err != nil {
+		return nil, resp, err
+	}
+
 	return gm, resp, err
 }
 
-// BillableGroupMember represents a GitLab billable group member.
-//
-// GitLab API docs: https://docs.gitlab.com/ee/api/members.html#list-all-billable-members-of-a-group
-type BillableGroupMember struct {
-	ID             int        `json:"id"`
-	Username       string     `json:"username"`
-	Name           string     `json:"name"`
-	State          string     `json:"state"`
-	AvatarURL      string     `json:"avatar_url"`
-	WebURL         string     `json:"web_url"`
-	Email          string     `json:"email"`
-	LastActivityOn *ISOTime   `json:"last_activity_on"`
-	MembershipType string     `json:"membership_type"`
-	Removeable     bool       `json:"removeable"`
-	CreatedAt      *time.Time `json:"created_at"`
-	IsLastOwner    bool       `json:"is_last_owner"`
-	LastLoginAt    *time.Time `json:"last_login_at"`
-}
-
-// ListBillableGroupMembersOptions represents the available ListBillableGroupMembers() options.
+// ListBillableGroupMembersOptions represents the available
+// ListBillableGroupMembers() options.
 //
 // GitLab API docs:
 // https://docs.gitlab.com/ee/api/members.html#list-all-billable-members-of-a-group
@@ -207,7 +252,40 @@ func (s *GroupsService) ListBillableGroupMembers(gid interface{}, opt *ListBilla
 		return nil, resp, err
 	}
 
-	return bgm, resp, err
+	return bgm, resp, nil
+}
+
+// ListMembershipsForBillableGroupMemberOptions represents the available
+// ListMembershipsForBillableGroupMember() options.
+//
+// GitLab API docs:
+// https://docs.gitlab.com/ee/api/members.html#list-memberships-for-a-billable-member-of-a-group
+type ListMembershipsForBillableGroupMemberOptions = ListOptions
+
+// ListMembershipsForBillableGroupMember gets a list of memberships for a
+// billable member of a group.
+//
+// GitLab API docs:
+// https://docs.gitlab.com/ee/api/members.html#list-memberships-for-a-billable-member-of-a-group
+func (s *GroupsService) ListMembershipsForBillableGroupMember(gid interface{}, user int, opt *ListMembershipsForBillableGroupMemberOptions, options ...RequestOptionFunc) ([]*BillableUserMembership, *Response, error) {
+	group, err := parseID(gid)
+	if err != nil {
+		return nil, nil, err
+	}
+	u := fmt.Sprintf("groups/%s/billable_members/%d/memberships", PathEscape(group), user)
+
+	req, err := s.client.NewRequest(http.MethodGet, u, opt, options)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	var bum []*BillableUserMembership
+	resp, err := s.client.Do(req, &bum)
+	if err != nil {
+		return nil, resp, err
+	}
+
+	return bum, resp, nil
 }
 
 // RemoveBillableGroupMember removes a given group members that count as billable.
@@ -251,7 +329,7 @@ func (s *GroupMembersService) AddGroupMember(gid interface{}, opt *AddGroupMembe
 		return nil, resp, err
 	}
 
-	return gm, resp, err
+	return gm, resp, nil
 }
 
 // ShareWithGroup shares a group with the group.
@@ -276,7 +354,7 @@ func (s *GroupMembersService) ShareWithGroup(gid interface{}, opt *ShareWithGrou
 		return nil, resp, err
 	}
 
-	return g, resp, err
+	return g, resp, nil
 }
 
 // DeleteShareWithGroup allows to unshare a group from a group.
@@ -304,8 +382,9 @@ func (s *GroupMembersService) DeleteShareWithGroup(gid interface{}, groupID int,
 // GitLab API docs:
 // https://docs.gitlab.com/ee/api/members.html#edit-a-member-of-a-group-or-project
 type EditGroupMemberOptions struct {
-	AccessLevel *AccessLevelValue `url:"access_level,omitempty" json:"access_level,omitempty"`
-	ExpiresAt   *string           `url:"expires_at,omitempty" json:"expires_at,omitempty"`
+	AccessLevel  *AccessLevelValue `url:"access_level,omitempty" json:"access_level,omitempty"`
+	ExpiresAt    *string           `url:"expires_at,omitempty" json:"expires_at,omitempty"`
+	MemberRoleID *int              `url:"member_role_id,omitempty" json:"member_role_id,omitempty"`
 }
 
 // EditGroupMember updates a member of a group.
@@ -330,12 +409,13 @@ func (s *GroupMembersService) EditGroupMember(gid interface{}, user int, opt *Ed
 		return nil, resp, err
 	}
 
-	return gm, resp, err
+	return gm, resp, nil
 }
 
 // RemoveGroupMemberOptions represents the available options to remove a group member.
 //
-// GitLab API docs: https://docs.gitlab.com/ee/api/members.html#remove-a-member-from-a-group-or-project
+// GitLab API docs:
+// https://docs.gitlab.com/ee/api/members.html#remove-a-member-from-a-group-or-project
 type RemoveGroupMemberOptions struct {
 	SkipSubresources  *bool `url:"skip_subresources,omitempty" json:"skip_subresources,omitempty"`
 	UnassignIssuables *bool `url:"unassign_issuables,omitempty" json:"unassign_issuables,omitempty"`

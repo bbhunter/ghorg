@@ -102,18 +102,18 @@ func (s *LabelsService) ListLabels(pid interface{}, opt *ListLabelsOptions, opti
 		return nil, resp, err
 	}
 
-	return l, resp, err
+	return l, resp, nil
 }
 
 // GetLabel get a single label for a given project.
 //
 // GitLab API docs: https://docs.gitlab.com/ee/api/labels.html#get-a-single-project-label
-func (s *LabelsService) GetLabel(pid interface{}, labelID interface{}, options ...RequestOptionFunc) (*Label, *Response, error) {
+func (s *LabelsService) GetLabel(pid interface{}, lid interface{}, options ...RequestOptionFunc) (*Label, *Response, error) {
 	project, err := parseID(pid)
 	if err != nil {
 		return nil, nil, err
 	}
-	label, err := parseID(labelID)
+	label, err := parseID(lid)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -130,7 +130,7 @@ func (s *LabelsService) GetLabel(pid interface{}, labelID interface{}, options .
 		return nil, resp, err
 	}
 
-	return l, resp, err
+	return l, resp, nil
 }
 
 // CreateLabelOptions represents the available CreateLabel() options.
@@ -165,7 +165,7 @@ func (s *LabelsService) CreateLabel(pid interface{}, opt *CreateLabelOptions, op
 		return nil, resp, err
 	}
 
-	return l, resp, err
+	return l, resp, nil
 }
 
 // DeleteLabelOptions represents the available DeleteLabel() options.
@@ -175,15 +175,23 @@ type DeleteLabelOptions struct {
 	Name *string `url:"name,omitempty" json:"name,omitempty"`
 }
 
-// DeleteLabel deletes a label given by its name.
+// DeleteLabel deletes a label given by its name or ID.
 //
 // GitLab API docs: https://docs.gitlab.com/ee/api/labels.html#delete-a-label
-func (s *LabelsService) DeleteLabel(pid interface{}, opt *DeleteLabelOptions, options ...RequestOptionFunc) (*Response, error) {
+func (s *LabelsService) DeleteLabel(pid interface{}, lid interface{}, opt *DeleteLabelOptions, options ...RequestOptionFunc) (*Response, error) {
 	project, err := parseID(pid)
 	if err != nil {
 		return nil, err
 	}
 	u := fmt.Sprintf("projects/%s/labels", PathEscape(project))
+
+	if lid != nil {
+		label, err := parseID(lid)
+		if err != nil {
+			return nil, err
+		}
+		u = fmt.Sprintf("projects/%s/labels/%s", PathEscape(project), PathEscape(label))
+	}
 
 	req, err := s.client.NewRequest(http.MethodDelete, u, opt, options)
 	if err != nil {
@@ -208,12 +216,20 @@ type UpdateLabelOptions struct {
 // one parameter is required, to update the label.
 //
 // GitLab API docs: https://docs.gitlab.com/ee/api/labels.html#edit-an-existing-label
-func (s *LabelsService) UpdateLabel(pid interface{}, opt *UpdateLabelOptions, options ...RequestOptionFunc) (*Label, *Response, error) {
+func (s *LabelsService) UpdateLabel(pid interface{}, lid interface{}, opt *UpdateLabelOptions, options ...RequestOptionFunc) (*Label, *Response, error) {
 	project, err := parseID(pid)
 	if err != nil {
 		return nil, nil, err
 	}
 	u := fmt.Sprintf("projects/%s/labels", PathEscape(project))
+
+	if lid != nil {
+		label, err := parseID(lid)
+		if err != nil {
+			return nil, nil, err
+		}
+		u = fmt.Sprintf("projects/%s/labels/%s", PathEscape(project), PathEscape(label))
+	}
 
 	req, err := s.client.NewRequest(http.MethodPut, u, opt, options)
 	if err != nil {
@@ -226,7 +242,7 @@ func (s *LabelsService) UpdateLabel(pid interface{}, opt *UpdateLabelOptions, op
 		return nil, resp, err
 	}
 
-	return l, resp, err
+	return l, resp, nil
 }
 
 // SubscribeToLabel subscribes the authenticated user to a label to receive
@@ -235,12 +251,12 @@ func (s *LabelsService) UpdateLabel(pid interface{}, opt *UpdateLabelOptions, op
 //
 // GitLab API docs:
 // https://docs.gitlab.com/ee/api/labels.html#subscribe-to-a-label
-func (s *LabelsService) SubscribeToLabel(pid interface{}, labelID interface{}, options ...RequestOptionFunc) (*Label, *Response, error) {
+func (s *LabelsService) SubscribeToLabel(pid interface{}, lid interface{}, options ...RequestOptionFunc) (*Label, *Response, error) {
 	project, err := parseID(pid)
 	if err != nil {
 		return nil, nil, err
 	}
-	label, err := parseID(labelID)
+	label, err := parseID(lid)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -257,7 +273,7 @@ func (s *LabelsService) SubscribeToLabel(pid interface{}, labelID interface{}, o
 		return nil, resp, err
 	}
 
-	return l, resp, err
+	return l, resp, nil
 }
 
 // UnsubscribeFromLabel unsubscribes the authenticated user from a label to not
@@ -266,12 +282,12 @@ func (s *LabelsService) SubscribeToLabel(pid interface{}, labelID interface{}, o
 //
 // GitLab API docs:
 // https://docs.gitlab.com/ee/api/labels.html#unsubscribe-from-a-label
-func (s *LabelsService) UnsubscribeFromLabel(pid interface{}, labelID interface{}, options ...RequestOptionFunc) (*Response, error) {
+func (s *LabelsService) UnsubscribeFromLabel(pid interface{}, lid interface{}, options ...RequestOptionFunc) (*Response, error) {
 	project, err := parseID(pid)
 	if err != nil {
 		return nil, err
 	}
-	label, err := parseID(labelID)
+	label, err := parseID(lid)
 	if err != nil {
 		return nil, err
 	}
@@ -289,12 +305,12 @@ func (s *LabelsService) UnsubscribeFromLabel(pid interface{}, labelID interface{
 //
 // GitLab API docs:
 // https://docs.gitlab.com/ee/api/labels.html#promote-a-project-label-to-a-group-label
-func (s *LabelsService) PromoteLabel(pid interface{}, labelID interface{}, options ...RequestOptionFunc) (*Response, error) {
+func (s *LabelsService) PromoteLabel(pid interface{}, lid interface{}, options ...RequestOptionFunc) (*Response, error) {
 	project, err := parseID(pid)
 	if err != nil {
 		return nil, err
 	}
-	label, err := parseID(labelID)
+	label, err := parseID(lid)
 	if err != nil {
 		return nil, err
 	}

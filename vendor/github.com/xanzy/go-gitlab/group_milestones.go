@@ -58,11 +58,19 @@ func (m GroupMilestone) String() string {
 // https://docs.gitlab.com/ee/api/group_milestones.html#list-group-milestones
 type ListGroupMilestonesOptions struct {
 	ListOptions
-	IIDs                    *[]int  `url:"iids[],omitempty" json:"iids,omitempty"`
-	State                   *string `url:"state,omitempty" json:"state,omitempty"`
-	Title                   *string `url:"title,omitempty" json:"title,omitempty"`
-	Search                  *string `url:"search,omitempty" json:"search,omitempty"`
-	IncludeParentMilestones *bool   `url:"include_parent_milestones,omitempty" json:"include_parent_milestones,omitempty"`
+	IIDs                    *[]int   `url:"iids[],omitempty" json:"iids,omitempty"`
+	State                   *string  `url:"state,omitempty" json:"state,omitempty"`
+	Title                   *string  `url:"title,omitempty" json:"title,omitempty"`
+	Search                  *string  `url:"search,omitempty" json:"search,omitempty"`
+	SearchTitle             *string  `url:"search_title,omitempty" json:"search_title,omitempty"`
+	IncludeParentMilestones *bool    `url:"include_parent_milestones,omitempty" json:"include_parent_milestones,omitempty"`
+	IncludeAncestors        *bool    `url:"include_ancestors,omitempty" json:"include_ancestors,omitempty"`
+	IncludeDescendents      *bool    `url:"include_descendents,omitempty" json:"include_descendents,omitempty"`
+	UpdatedBefore           *ISOTime `url:"updated_before,omitempty" json:"updated_before,omitempty"`
+	UpdatedAfter            *ISOTime `url:"updated_after,omitempty" json:"updated_after,omitempty"`
+	ContainingDate          *ISOTime `url:"containing_date,omitempty" json:"containing_date,omitempty"`
+	StartDate               *ISOTime `url:"start_date,omitempty" json:"start_date,omitempty"`
+	EndDate                 *ISOTime `url:"end_date,omitempty" json:"end_date,omitempty"`
 }
 
 // ListGroupMilestones returns a list of group milestones.
@@ -87,7 +95,7 @@ func (s *GroupMilestonesService) ListGroupMilestones(gid interface{}, opt *ListG
 		return nil, resp, err
 	}
 
-	return m, resp, err
+	return m, resp, nil
 }
 
 // GetGroupMilestone gets a single group milestone.
@@ -112,7 +120,7 @@ func (s *GroupMilestonesService) GetGroupMilestone(gid interface{}, milestone in
 		return nil, resp, err
 	}
 
-	return m, resp, err
+	return m, resp, nil
 }
 
 // CreateGroupMilestoneOptions represents the available CreateGroupMilestone() options.
@@ -148,7 +156,7 @@ func (s *GroupMilestonesService) CreateGroupMilestone(gid interface{}, opt *Crea
 		return nil, resp, err
 	}
 
-	return m, resp, err
+	return m, resp, nil
 }
 
 // UpdateGroupMilestoneOptions represents the available UpdateGroupMilestone() options.
@@ -185,7 +193,25 @@ func (s *GroupMilestonesService) UpdateGroupMilestone(gid interface{}, milestone
 		return nil, resp, err
 	}
 
-	return m, resp, err
+	return m, resp, nil
+}
+
+// DeleteGroupMilestone deletes a specified group milestone.
+//
+// GitLab API docs:
+// https://docs.gitlab.com/ee/api/group_milestones.html#delete-group-milestone
+func (s *GroupMilestonesService) DeleteGroupMilestone(pid interface{}, milestone int, options ...RequestOptionFunc) (*Response, error) {
+	project, err := parseID(pid)
+	if err != nil {
+		return nil, err
+	}
+	u := fmt.Sprintf("groups/%s/milestones/%d", PathEscape(project), milestone)
+
+	req, err := s.client.NewRequest(http.MethodDelete, u, nil, options)
+	if err != nil {
+		return nil, err
+	}
+	return s.client.Do(req, nil)
 }
 
 // GetGroupMilestoneIssuesOptions represents the available GetGroupMilestoneIssues() options.
@@ -216,7 +242,7 @@ func (s *GroupMilestonesService) GetGroupMilestoneIssues(gid interface{}, milest
 		return nil, resp, err
 	}
 
-	return i, resp, err
+	return i, resp, nil
 }
 
 // GetGroupMilestoneMergeRequestsOptions represents the available
@@ -249,7 +275,7 @@ func (s *GroupMilestonesService) GetGroupMilestoneMergeRequests(gid interface{},
 		return nil, resp, err
 	}
 
-	return mr, resp, err
+	return mr, resp, nil
 }
 
 // BurndownChartEvent reprensents a burnout chart event
@@ -292,5 +318,5 @@ func (s *GroupMilestonesService) GetGroupMilestoneBurndownChartEvents(gid interf
 		return nil, resp, err
 	}
 
-	return be, resp, err
+	return be, resp, nil
 }
