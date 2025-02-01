@@ -52,19 +52,20 @@ type Runner struct {
 //
 // GitLab API docs: https://docs.gitlab.com/ee/api/runners.html
 type RunnerDetails struct {
-	Paused       bool       `json:"paused"`
-	Architecture string     `json:"architecture"`
-	Description  string     `json:"description"`
-	ID           int        `json:"id"`
-	IPAddress    string     `json:"ip_address"`
-	IsShared     bool       `json:"is_shared"`
-	RunnerType   string     `json:"runner_type"`
-	ContactedAt  *time.Time `json:"contacted_at"`
-	Name         string     `json:"name"`
-	Online       bool       `json:"online"`
-	Status       string     `json:"status"`
-	Platform     string     `json:"platform"`
-	Projects     []struct {
+	Paused          bool       `json:"paused"`
+	Architecture    string     `json:"architecture"`
+	Description     string     `json:"description"`
+	ID              int        `json:"id"`
+	IPAddress       string     `json:"ip_address"`
+	IsShared        bool       `json:"is_shared"`
+	RunnerType      string     `json:"runner_type"`
+	ContactedAt     *time.Time `json:"contacted_at"`
+	MaintenanceNote string     `json:"maintenance_note"`
+	Name            string     `json:"name"`
+	Online          bool       `json:"online"`
+	Status          string     `json:"status"`
+	Platform        string     `json:"platform"`
+	Projects        []struct {
 		ID                int    `json:"id"`
 		Name              string `json:"name"`
 		NameWithNamespace string `json:"name_with_namespace"`
@@ -120,7 +121,7 @@ func (s *RunnersService) ListRunners(opt *ListRunnersOptions, options ...Request
 		return nil, resp, err
 	}
 
-	return rs, resp, err
+	return rs, resp, nil
 }
 
 // ListAllRunners gets a list of all runners in the GitLab instance. Access is
@@ -140,7 +141,7 @@ func (s *RunnersService) ListAllRunners(opt *ListRunnersOptions, options ...Requ
 		return nil, resp, err
 	}
 
-	return rs, resp, err
+	return rs, resp, nil
 }
 
 // GetRunnerDetails returns details for given runner.
@@ -165,7 +166,7 @@ func (s *RunnersService) GetRunnerDetails(rid interface{}, options ...RequestOpt
 		return nil, resp, err
 	}
 
-	return rs, resp, err
+	return rs, resp, nil
 }
 
 // UpdateRunnerDetailsOptions represents the available UpdateRunnerDetails() options.
@@ -173,13 +174,14 @@ func (s *RunnersService) GetRunnerDetails(rid interface{}, options ...RequestOpt
 // GitLab API docs:
 // https://docs.gitlab.com/ee/api/runners.html#update-runners-details
 type UpdateRunnerDetailsOptions struct {
-	Description    *string   `url:"description,omitempty" json:"description,omitempty"`
-	Paused         *bool     `url:"paused,omitempty" json:"paused,omitempty"`
-	TagList        *[]string `url:"tag_list[],omitempty" json:"tag_list,omitempty"`
-	RunUntagged    *bool     `url:"run_untagged,omitempty" json:"run_untagged,omitempty"`
-	Locked         *bool     `url:"locked,omitempty" json:"locked,omitempty"`
-	AccessLevel    *string   `url:"access_level,omitempty" json:"access_level,omitempty"`
-	MaximumTimeout *int      `url:"maximum_timeout,omitempty" json:"maximum_timeout,omitempty"`
+	Description     *string   `url:"description,omitempty" json:"description,omitempty"`
+	Paused          *bool     `url:"paused,omitempty" json:"paused,omitempty"`
+	TagList         *[]string `url:"tag_list[],omitempty" json:"tag_list,omitempty"`
+	RunUntagged     *bool     `url:"run_untagged,omitempty" json:"run_untagged,omitempty"`
+	Locked          *bool     `url:"locked,omitempty" json:"locked,omitempty"`
+	AccessLevel     *string   `url:"access_level,omitempty" json:"access_level,omitempty"`
+	MaximumTimeout  *int      `url:"maximum_timeout,omitempty" json:"maximum_timeout,omitempty"`
+	MaintenanceNote *string   `url:"maintenance_note,omitempty" json:"maintenance_note,omitempty"`
 
 	// Deprecated: Use Paused instead. (Deprecated in GitLab 14.8)
 	Active *bool `url:"active,omitempty" json:"active,omitempty"`
@@ -207,7 +209,7 @@ func (s *RunnersService) UpdateRunnerDetails(rid interface{}, opt *UpdateRunnerD
 		return nil, resp, err
 	}
 
-	return rs, resp, err
+	return rs, resp, nil
 }
 
 // RemoveRunner removes a runner.
@@ -263,7 +265,7 @@ func (s *RunnersService) ListRunnerJobs(rid interface{}, opt *ListRunnerJobsOpti
 		return nil, resp, err
 	}
 
-	return rs, resp, err
+	return rs, resp, nil
 }
 
 // ListProjectRunnersOptions represents the available ListProjectRunners()
@@ -295,7 +297,7 @@ func (s *RunnersService) ListProjectRunners(pid interface{}, opt *ListProjectRun
 		return nil, resp, err
 	}
 
-	return rs, resp, err
+	return rs, resp, nil
 }
 
 // EnableProjectRunnerOptions represents the available EnableProjectRunner()
@@ -329,7 +331,7 @@ func (s *RunnersService) EnableProjectRunner(pid interface{}, opt *EnableProject
 		return nil, resp, err
 	}
 
-	return r, resp, err
+	return r, resp, nil
 }
 
 // DisableProjectRunner disables a specific runner from project.
@@ -386,7 +388,7 @@ func (s *RunnersService) ListGroupsRunners(gid interface{}, opt *ListGroupsRunne
 		return nil, resp, err
 	}
 
-	return rs, resp, err
+	return rs, resp, nil
 }
 
 // RegisterNewRunnerOptions represents the available RegisterNewRunner()
@@ -437,7 +439,7 @@ func (s *RunnersService) RegisterNewRunner(opt *RegisterNewRunnerOptions, option
 		return nil, resp, err
 	}
 
-	return r, resp, err
+	return r, resp, nil
 }
 
 // DeleteRegisteredRunnerOptions represents the available
@@ -519,7 +521,7 @@ func (s *RunnersService) ResetInstanceRunnerRegistrationToken(options ...Request
 		return nil, resp, err
 	}
 
-	return r, resp, err
+	return r, resp, nil
 }
 
 // ResetGroupRunnerRegistrationToken resets a group's runner registration token.
@@ -544,7 +546,7 @@ func (s *RunnersService) ResetGroupRunnerRegistrationToken(gid interface{}, opti
 		return nil, resp, err
 	}
 
-	return r, resp, err
+	return r, resp, nil
 }
 
 // ResetGroupRunnerRegistrationToken resets a projects's runner registration token.
@@ -568,7 +570,7 @@ func (s *RunnersService) ResetProjectRunnerRegistrationToken(pid interface{}, op
 		return nil, resp, err
 	}
 
-	return r, resp, err
+	return r, resp, nil
 }
 
 type RunnerAuthenticationToken struct {
@@ -593,5 +595,5 @@ func (s *RunnersService) ResetRunnerAuthenticationToken(rid int, options ...Requ
 		return nil, resp, err
 	}
 
-	return r, resp, err
+	return r, resp, nil
 }

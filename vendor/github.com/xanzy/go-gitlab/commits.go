@@ -35,24 +35,25 @@ type CommitsService struct {
 //
 // GitLab API docs: https://docs.gitlab.com/ee/api/commits.html
 type Commit struct {
-	ID             string            `json:"id"`
-	ShortID        string            `json:"short_id"`
-	Title          string            `json:"title"`
-	AuthorName     string            `json:"author_name"`
-	AuthorEmail    string            `json:"author_email"`
-	AuthoredDate   *time.Time        `json:"authored_date"`
-	CommitterName  string            `json:"committer_name"`
-	CommitterEmail string            `json:"committer_email"`
-	CommittedDate  *time.Time        `json:"committed_date"`
-	CreatedAt      *time.Time        `json:"created_at"`
-	Message        string            `json:"message"`
-	ParentIDs      []string          `json:"parent_ids"`
-	Stats          *CommitStats      `json:"stats"`
-	Status         *BuildStateValue  `json:"status"`
-	LastPipeline   *PipelineInfo     `json:"last_pipeline"`
-	ProjectID      int               `json:"project_id"`
-	Trailers       map[string]string `json:"trailers"`
-	WebURL         string            `json:"web_url"`
+	ID               string            `json:"id"`
+	ShortID          string            `json:"short_id"`
+	Title            string            `json:"title"`
+	AuthorName       string            `json:"author_name"`
+	AuthorEmail      string            `json:"author_email"`
+	AuthoredDate     *time.Time        `json:"authored_date"`
+	CommitterName    string            `json:"committer_name"`
+	CommitterEmail   string            `json:"committer_email"`
+	CommittedDate    *time.Time        `json:"committed_date"`
+	CreatedAt        *time.Time        `json:"created_at"`
+	Message          string            `json:"message"`
+	ParentIDs        []string          `json:"parent_ids"`
+	Stats            *CommitStats      `json:"stats"`
+	Status           *BuildStateValue  `json:"status"`
+	LastPipeline     *PipelineInfo     `json:"last_pipeline"`
+	ProjectID        int               `json:"project_id"`
+	Trailers         map[string]string `json:"trailers"`
+	ExtendedTrailers map[string]string `json:"extended_trailers"`
+	WebURL           string            `json:"web_url"`
 }
 
 // CommitStats represents the number of added and deleted files in a commit.
@@ -77,6 +78,7 @@ type ListCommitsOptions struct {
 	Since       *time.Time `url:"since,omitempty" json:"since,omitempty"`
 	Until       *time.Time `url:"until,omitempty" json:"until,omitempty"`
 	Path        *string    `url:"path,omitempty" json:"path,omitempty"`
+	Author      *string    `url:"author,omitempty" json:"author,omitempty"`
 	All         *bool      `url:"all,omitempty" json:"all,omitempty"`
 	WithStats   *bool      `url:"with_stats,omitempty" json:"with_stats,omitempty"`
 	FirstParent *bool      `url:"first_parent,omitempty" json:"first_parent,omitempty"`
@@ -104,7 +106,7 @@ func (s *CommitsService) ListCommits(pid interface{}, opt *ListCommitsOptions, o
 		return nil, resp, err
 	}
 
-	return c, resp, err
+	return c, resp, nil
 }
 
 // CommitRef represents the reference of branches/tags in a commit.
@@ -147,14 +149,22 @@ func (s *CommitsService) GetCommitRefs(pid interface{}, sha string, opt *GetComm
 		return nil, resp, err
 	}
 
-	return cs, resp, err
+	return cs, resp, nil
+}
+
+// GetCommitOptions represents the available GetCommit() options.
+//
+// GitLab API docs:
+// https://docs.gitlab.com/ee/api/commits.html#get-a-single-commit
+type GetCommitOptions struct {
+	Stats *bool `url:"stats,omitempty" json:"stats,omitempty"`
 }
 
 // GetCommit gets a specific commit identified by the commit hash or name of a
 // branch or tag.
 //
 // GitLab API docs: https://docs.gitlab.com/ee/api/commits.html#get-a-single-commit
-func (s *CommitsService) GetCommit(pid interface{}, sha string, options ...RequestOptionFunc) (*Commit, *Response, error) {
+func (s *CommitsService) GetCommit(pid interface{}, sha string, opt *GetCommitOptions, options ...RequestOptionFunc) (*Commit, *Response, error) {
 	project, err := parseID(pid)
 	if err != nil {
 		return nil, nil, err
@@ -164,7 +174,7 @@ func (s *CommitsService) GetCommit(pid interface{}, sha string, options ...Reque
 	}
 	u := fmt.Sprintf("projects/%s/repository/commits/%s", PathEscape(project), url.PathEscape(sha))
 
-	req, err := s.client.NewRequest(http.MethodGet, u, nil, options)
+	req, err := s.client.NewRequest(http.MethodGet, u, opt, options)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -175,7 +185,7 @@ func (s *CommitsService) GetCommit(pid interface{}, sha string, options ...Reque
 		return nil, resp, err
 	}
 
-	return c, resp, err
+	return c, resp, nil
 }
 
 // CreateCommitOptions represents the available options for a new commit.
@@ -229,7 +239,7 @@ func (s *CommitsService) CreateCommit(pid interface{}, opt *CreateCommitOptions,
 		return nil, resp, err
 	}
 
-	return c, resp, err
+	return c, resp, nil
 }
 
 // Diff represents a GitLab diff.
@@ -254,7 +264,10 @@ func (d Diff) String() string {
 //
 // GitLab API docs:
 // https://docs.gitlab.com/ee/api/commits.html#get-the-diff-of-a-commit
-type GetCommitDiffOptions ListOptions
+type GetCommitDiffOptions struct {
+	ListOptions
+	Unidiff *bool `url:"unidiff,omitempty" json:"unidiff,omitempty"`
+}
 
 // GetCommitDiff gets the diff of a commit in a project..
 //
@@ -278,7 +291,7 @@ func (s *CommitsService) GetCommitDiff(pid interface{}, sha string, opt *GetComm
 		return nil, resp, err
 	}
 
-	return d, resp, err
+	return d, resp, nil
 }
 
 // CommitComment represents a GitLab commit comment.
@@ -335,7 +348,7 @@ func (s *CommitsService) GetCommitComments(pid interface{}, sha string, opt *Get
 		return nil, resp, err
 	}
 
-	return c, resp, err
+	return c, resp, nil
 }
 
 // PostCommitCommentOptions represents the available PostCommitComment()
@@ -374,7 +387,7 @@ func (s *CommitsService) PostCommitComment(pid interface{}, sha string, opt *Pos
 		return nil, resp, err
 	}
 
-	return c, resp, err
+	return c, resp, nil
 }
 
 // GetCommitStatusesOptions represents the available GetCommitStatuses() options.
@@ -402,6 +415,7 @@ type CommitStatus struct {
 	Name         string     `json:"name"`
 	AllowFailure bool       `json:"allow_failure"`
 	Coverage     float64    `json:"coverage"`
+	PipelineId   int        `json:"pipeline_id"`
 	Author       Author     `json:"author"`
 	Description  string     `json:"description"`
 	TargetURL    string     `json:"target_url"`
@@ -428,7 +442,7 @@ func (s *CommitsService) GetCommitStatuses(pid interface{}, sha string, opt *Get
 		return nil, resp, err
 	}
 
-	return cs, resp, err
+	return cs, resp, nil
 }
 
 // SetCommitStatusOptions represents the available SetCommitStatus() options.
@@ -466,7 +480,7 @@ func (s *CommitsService) SetCommitStatus(pid interface{}, sha string, opt *SetCo
 		return nil, resp, err
 	}
 
-	return cs, resp, err
+	return cs, resp, nil
 }
 
 // ListMergeRequestsByCommit gets merge request associated with a commit.
@@ -491,7 +505,7 @@ func (s *CommitsService) ListMergeRequestsByCommit(pid interface{}, sha string, 
 		return nil, resp, err
 	}
 
-	return mrs, resp, err
+	return mrs, resp, nil
 }
 
 // CherryPickCommitOptions represents the available CherryPickCommit() options.
@@ -524,7 +538,7 @@ func (s *CommitsService) CherryPickCommit(pid interface{}, sha string, opt *Cher
 		return nil, resp, err
 	}
 
-	return c, resp, err
+	return c, resp, nil
 }
 
 // RevertCommitOptions represents the available RevertCommit() options.
@@ -555,7 +569,7 @@ func (s *CommitsService) RevertCommit(pid interface{}, sha string, opt *RevertCo
 		return nil, resp, err
 	}
 
-	return c, resp, err
+	return c, resp, nil
 }
 
 // GPGSignature represents a Gitlab commit's GPG Signature.
@@ -571,10 +585,10 @@ type GPGSignature struct {
 	KeySubkeyID        int    `json:"gpg_key_subkey_id"`
 }
 
-// GetGPGSiganature gets a GPG signature of a commit.
+// GetGPGSignature gets a GPG signature of a commit.
 //
 // GitLab API docs: https://docs.gitlab.com/ee/api/commits.html#get-gpg-signature-of-a-commit
-func (s *CommitsService) GetGPGSiganature(pid interface{}, sha string, options ...RequestOptionFunc) (*GPGSignature, *Response, error) {
+func (s *CommitsService) GetGPGSignature(pid interface{}, sha string, options ...RequestOptionFunc) (*GPGSignature, *Response, error) {
 	project, err := parseID(pid)
 	if err != nil {
 		return nil, nil, err
@@ -592,5 +606,5 @@ func (s *CommitsService) GetGPGSiganature(pid interface{}, sha string, options .
 		return nil, resp, err
 	}
 
-	return sig, resp, err
+	return sig, resp, nil
 }

@@ -1,6 +1,7 @@
 package scm
 
 import (
+	"crypto/tls"
 	"fmt"
 	"net/http"
 	"os"
@@ -33,6 +34,9 @@ func (_ Gitea) GetType() string {
 func (c Gitea) GetOrgRepos(targetOrg string) ([]Repo, error) {
 	repoData := []Repo{}
 
+	spinningSpinner.Start()
+	defer spinningSpinner.Stop()
+
 	for i := 1; ; i++ {
 		rps, resp, err := c.ListOrgRepos(targetOrg, gitea.ListOrgReposOptions{ListOptions: gitea.ListOptions{
 			Page:     i,
@@ -64,6 +68,9 @@ func (c Gitea) GetOrgRepos(targetOrg string) ([]Repo, error) {
 // GetUserRepos gets all of a users gitlab repos
 func (c Gitea) GetUserRepos(targetUsername string) ([]Repo, error) {
 	repoData := []Repo{}
+
+	spinningSpinner.Start()
+	defer spinningSpinner.Stop()
 
 	for i := 1; ; i++ {
 		rps, resp, err := c.ListUserRepos(targetUsername, gitea.ListReposOptions{ListOptions: gitea.ListOptions{
@@ -108,9 +115,31 @@ func (_ Gitea) NewClient() (Client, error) {
 		colorlog.PrintErrorAndExit("You are attempting clone from an insecure Gitea instance. You must set the (--insecure-gitea-client) flag to proceed.")
 	}
 
-	c, err := gitea.NewClient(baseURL, gitea.SetToken(token))
-	if err != nil {
-		return nil, err
+	var err error
+	var c *gitea.Client
+	if os.Getenv("GHORG_INSECURE_GITEA_CLIENT") == "true" {
+		defaultTransport := http.DefaultTransport.(*http.Transport)
+		// Create new Transport that ignores self-signed SSL
+		customTransport := &http.Transport{
+			Proxy:                 defaultTransport.Proxy,
+			DialContext:           defaultTransport.DialContext,
+			MaxIdleConns:          defaultTransport.MaxIdleConns,
+			IdleConnTimeout:       defaultTransport.IdleConnTimeout,
+			ExpectContinueTimeout: defaultTransport.ExpectContinueTimeout,
+			TLSHandshakeTimeout:   defaultTransport.TLSHandshakeTimeout,
+			TLSClientConfig:       &tls.Config{InsecureSkipVerify: true},
+		}
+		client := &http.Client{Transport: customTransport}
+		c, err = gitea.NewClient(baseURL, gitea.SetToken(token), gitea.SetHTTPClient(client))
+		if err != nil {
+			return nil, err
+		}
+		colorlog.PrintError("WARNING: USING AN INSECURE GITEA CLIENT")
+	} else {
+		c, err = gitea.NewClient(baseURL, gitea.SetToken(token))
+		if err != nil {
+			return nil, err
+		}
 	}
 	client := Gitea{Client: c}
 
